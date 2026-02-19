@@ -26,8 +26,11 @@ class BurdenFreeAnalyzer:
     This class can be modified in function of the technosphere activities to be characterised.
     """
 
-    def __init__(self, project_name="My_BurdenFree_Project"):
+    def __init__(self, project_name="My_BurdenFree_Project", technosphere_database_name="technosphere_database_name", ecoinvent_version = "3.11", ecoinvent_systemmodel = "cut-off"):
         self.project_name = project_name
+        self.technosphere_database_name = technosphere_database_name
+        self.ecoinvent_version = ecoinvent_version
+        self.ecoinvent_systemmodel = ecoinvent_systemmodel
         self.all_burden_free_activities = {}
         self.setup_complete = False
 
@@ -40,12 +43,13 @@ class BurdenFreeAnalyzer:
         print(f"The project '{self.project_name}' is set as current.")
         # the principles are applied to the most used LCA database, ecoinvent [https://ecochain.com/blog/lci-databases-in-lca/]
         # the cutoff system model is the simplest to understand [https://support.ecoinvent.org/system-models-1]
-        if 'ecoinvent-3.11-cutoff' not in bd.databases: 
-            print("Importing ecoinvent 3.11 cutoff database...")
-            # Récupère les identifiants depuis les variables d'environnement
+        if self.technosphere_database_name not in bd.databases: 
+            print("Importing the specified technosphere LCA database...")
+            # For ecoinvent
             username = os.getenv("EI_USERNAME")
             password = os.getenv("EI_PASSWORD")
-            bi.import_ecoinvent_release('3.11', 'cutoff', username, password) # change the version, and system model
+
+            bi.import_ecoinvent_release(self.ecoinvent_version, self.ecoinvent_systemmodel, username, password) # change the version, and system model
 
         self.setup_complete = True
 
