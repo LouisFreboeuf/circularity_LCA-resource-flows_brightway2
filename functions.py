@@ -15,8 +15,10 @@ from matplotlib.patches import Patch
 # Brightway imports
 import brightway2 as bw
 import bw2io as bi
+import bw2calc as bc
 from bw2data import Database, databases as bw_databases, utils as bw2data_utils
 from bw2data import calculation_setups
+import bw2data as bd
 
 class BurdenFreeAnalyzer:
     """
@@ -31,16 +33,19 @@ class BurdenFreeAnalyzer:
 
     def setup_project(self):
         """Set up a new Brightway2 project and import ecoinvent if missing"""
-        if self.project_name not in bw.projects:
-            bw.projects.create_project(self.project_name)
-
-        bw.projects.set_current(self.project_name)
+        if self.project_name not in bd.projects:
+            bd.projects.create_project(self.project_name)
+       
+        bd.projects.set_current(self.project_name)
         print(f"The project '{self.project_name}' is set as current.")
         # the principles are applied to the most used LCA database, ecoinvent [https://ecochain.com/blog/lci-databases-in-lca/]
         # the cutoff system model is the simplest to understand [https://support.ecoinvent.org/system-models-1]
-        if 'ecoinvent-3.11-cutoff' not in bw.databases: 
+        if 'ecoinvent-3.11-cutoff' not in bd.databases: 
             print("Importing ecoinvent 3.11 cutoff database...")
-            bi.import_ecoinvent_release('3.11', 'cutoff', 'your_ei_id', 'your_ei_pw')
+            # Récupère les identifiants depuis les variables d'environnement
+            username = os.getenv("EI_USERNAME")
+            password = os.getenv("EI_PASSWORD")
+            bi.import_ecoinvent_release('3.11', 'cutoff', username, password) # change the version, and system model
 
         self.setup_complete = True
 
@@ -67,7 +72,7 @@ class BurdenFreeAnalyzer:
                 try:
                     # Use (database, code) as the key
                     key = (db_name, act["code"])
-                    activity = bw.get_activity(key)
+                    activity = bd.get_activity(key)
                     self.all_burden_free_activities[db_name].append(activity)
                 except Exception as e:
                     print(f"Error loading activity {act['code']} in {db_name}: {e}")
@@ -396,7 +401,7 @@ class CircularityCalculator:
         all_flows = []
 
         for fu_dict in functional_units:
-            lca = bw.LCA(fu_dict)
+            lca = bc.LCA(fu_dict) #bw. for brightway2
             lca.lci()
             inventory = lca.inventory.sum(axis=1)
             if hasattr(inventory, 'A1'):
@@ -409,7 +414,7 @@ class CircularityCalculator:
                 flow_key = reverse_dict.get(idx)
                 if flow_key:
                     try:
-                        flow = bw.get_activity(flow_key)
+                        flow = bd.get_activity(flow_key) #bw. for brightway2
                         all_flows.append({
                             'Flow Key': flow_key,
                             'Flow Name': flow.get('name', 'Unknown'),
@@ -433,13 +438,13 @@ class CircularityCalculator:
         mass_lookup, energy_lookup = CircularityCalculator.build_combined_lookup(technosphere_db_name)
 
         try:
-            ced_method = bw.Method(('Cumulative Energy Demand (CED)', 'energy resources: non-renewable', 'energy content (HHV)'))
+            ced_method = bd.Method(('Cumulative Energy Demand (CED)', 'energy resources: non-renewable', 'energy content (HHV)')) #bw. for brightway2
             ced_cf_dict = dict(ced_method.load())
         except Exception:
             ced_cf_dict = {}
 
         try:
-            renewable_ced_method = bw.Method(('Cumulative Energy Demand (CED)', 'energy resources: renewable', 'energy content (HHV)'))
+            renewable_ced_method = bd.Method(('Cumulative Energy Demand (CED)', 'energy resources: renewable', 'energy content (HHV)')) 
             renewable_cf_keys = set(k for k, _v in renewable_ced_method.load())
         except Exception:
             renewable_cf_keys = set()
@@ -467,7 +472,7 @@ class CircularityCalculator:
             flow_key = row['Flow Key']
             if flow_key not in flow_cache:
                 try:
-                    flow_cache[flow_key] = bw.get_activity(flow_key)
+                    flow_cache[flow_key] = bd.get_activity(flow_key) 
                 except Exception:
                     flow_cache[flow_key] = None
 
@@ -479,7 +484,7 @@ class CircularityCalculator:
                 for fu_dict in functional_units:
                     for fu_key, fu_amount in fu_dict.items():
                         try:
-                            fu_activity = bw.get_activity(fu_key)
+                            fu_activity = bd.get_activity(fu_key) 
                             fu_name = fu_activity.get('name', 'Unknown')
                             fu_unit = fu_activity.get('unit', 'Unknown')
                             fu_amount = abs(fu_amount)
@@ -697,12 +702,12 @@ class MultiLCACalculator:
 
     def get_circularity_methods(self):
         """Get all circularity indicator methods."""
-        return [m for m in bw.methods if m and len(m) > 0 and
+        return [m for m in bd.methods if m and len(m) > 0 and #bw. for brightway2
                 str(m[0]).lower().startswith('circularity')]
 
     def precompute_locations(self, database_name="ecoinvent-3.11-cutoff"):
         """Precompute locations for all activities in the database."""
-        db = bw.Database(database_name)
+        db = bd.Database(database_name) #bw. for brightway2
         self.location_lookup = {
             activity.key: activity.get('location', 'Unknown')
             for activity in db
@@ -717,7 +722,7 @@ class MultiLCACalculator:
         if not self.location_lookup:
             self.precompute_locations(database_name)
 
-        db = bw.Database(database_name)
+        db = bd.Database(database_name) 
         location_codes = [code.lower() for code in (location_codes or [])]
         search_terms = [term.lower() for term in search_terms]
 
@@ -853,7 +858,7 @@ class MultiLCACalculator:
         print(f"- Functional units: {len(functional_units)}")
         print(f"- Methods: {len(circ_methods)} circularity indicators")
         for i, (key, amount) in enumerate(functional_units):
-            act = bw.get_activity(key)
+            act = bd.get_activity(key)
             print(f"  {i+1}. {act.get('reference product')} ({act.get('unit')}): {amount}")
 
         return calculation_setups[setup_name]
@@ -882,7 +887,7 @@ class MultiLCACalculator:
                 amount = float(amount_str.strip())
 
                 # Validate the activity exists
-                bw.get_activity(key)
+                bd.get_activity(key)
                 functional_units.append((key, amount))
             except Exception as e:
                 print(f"Invalid input: {str(e)}. Please try again.")
@@ -903,7 +908,7 @@ class MultiLCACalculator:
         print(f"- Functional units: {len(functional_units)}")
         print(f"- Methods: {len(circ_methods)} circularity indicators")
         for i, (key, amount) in enumerate(functional_units):
-            act = bw.get_activity(key)
+            act = bd.get_activity(key)
             print(f"  {i+1}. {act.get('reference product')} ({act.get('unit')}): {amount}")
 
         return calculation_setups[setup_name]
@@ -916,7 +921,7 @@ class MultiLCACalculator:
             raise ValueError(f"Calculation setup '{setup_name}' not found. Available setups: {list(calculation_setups.keys())}")
 
         # Create MultiLCA object
-        mLCA = bw.MultiLCA(setup_name)
+        mLCA = bc.MultiLCA(setup_name) #bw. for brightway2
 
         # Create results DataFrame
         calculation_setup = calculation_setups[setup_name]
@@ -924,7 +929,7 @@ class MultiLCACalculator:
         columns = []
         for fu_item in calculation_setup['inv']:
             for activity_key, amount in fu_item.items():
-                activity = bw.get_activity(activity_key)
+                activity = bd.get_activity(activity_key)
                 columns.append(f"{activity['name']} ({activity['location']}) - {amount} {activity.get('unit', 'unit')}")
 
         method_names = []
@@ -1152,7 +1157,7 @@ class CircularityDatabaseAnalyzer:
         """
         Precompute ISIC classes for all activities in the database.
         """
-        db = bw.Database(database_name)
+        db = bd.Database(database_name) 
         isic_lookup = {}
         for activity in db:
             isic_class = self.get_isic_class(activity)
@@ -1163,7 +1168,7 @@ class CircularityDatabaseAnalyzer:
         """
         Precompute ISIC classes for all activities in the database, including section and division.
         """
-        db = bw.Database(database_name)
+        db = bd.Database(database_name)
         isic_lookup = {}
         for activity in db:
             isic_class = None
@@ -1192,7 +1197,7 @@ class CircularityDatabaseAnalyzer:
         """
         Precompute locations for all activities in the database, classified by UN Regional Group.
         """
-        db = bw.Database(database_name)
+        db = bd.Database(database_name)
         location_lookup_classified = {}
         for activity in db:
             location = activity.get('location', 'Unknown')
@@ -1213,7 +1218,7 @@ class CircularityDatabaseAnalyzer:
             # Create FU dict for LCA
             lca_fu_dict = {fu_dict['activity_key']: fu_dict['amount']}
             # Initialize LCA and perform Life Cycle Inventory (LCI)
-            lca = bw.LCA(lca_fu_dict)
+            lca = bc.LCA(lca_fu_dict)
             lca.lci()
             # Sum the inventory
             inventory = lca.inventory.sum(axis=1)
@@ -1229,7 +1234,7 @@ class CircularityDatabaseAnalyzer:
                 flow_key = reverse_dict.get(idx)
                 if flow_key:
                     try:
-                        flow = bw.get_activity(flow_key) # flow = bw.get_node(flow_key) may be used in the future
+                        flow = bd.get_activity(flow_key) # flow = bd.get_node(flow_key) may be used in the future
                         # Verify we got a proper dictionary
                         if flow is None: # checking instance (CI) to be removed when optimised
                             print(f"Warning: flow {flow_key} is not found. Key type: {type(flow_key)}") # CI
@@ -1247,7 +1252,7 @@ class CircularityDatabaseAnalyzer:
                         continue # Noisy skip for errors
                         
             # ADD THE REFERENCE PRODUCT TO THE INVENTORY
-            activity = bw.get_activity(fu_dict['activity_key'])
+            activity = bd.get_activity(fu_dict['activity_key']) 
             # if activity is None:
                 # print(f"Warning: activity {fu_dict['activity_key']} is not found.")
             all_flows.append({
@@ -1271,7 +1276,7 @@ class CircularityDatabaseAnalyzer:
         Compute circularity for a single functional unit.
         """
         try:
-            activity = bw.get_activity(fu_dict['activity_key'])
+            activity = bd.get_activity(fu_dict['activity_key'])
             flows_df = self.get_inventory_for_1_act(fu_dict)
             if flows_df.empty:
                 return None
@@ -1298,7 +1303,7 @@ class CircularityDatabaseAnalyzer:
                 flow_key = row['Flow Key']
                 if flow_key not in flow_cache:
                     try:
-                        flow = bw.get_activity(flow_key)
+                        flow = bd.get_activity(flow_key)
                         flow_cache[flow_key] = flow
                     except Exception:
                         flow_cache[flow_key] = None
@@ -1420,7 +1425,7 @@ class CircularityDatabaseAnalyzer:
         """
         Compute circularity metrics for all processes sequentially.
         """
-        db = bw.Database(database_name)
+        db = bd.Database(database_name) #bw. for brightway2
         # functional_units = [] # here in the functional file
         activities = list(db)
 
@@ -1449,13 +1454,13 @@ class CircularityDatabaseAnalyzer:
         print(f"Prepared {len(functional_units)} functional units")
 
         try:
-            ced_method = bw.Method(('Cumulative Energy Demand (CED)', 'energy resources: non-renewable', 'energy content (HHV)'))
+            ced_method = bd.Method(('Cumulative Energy Demand (CED)', 'energy resources: non-renewable', 'energy content (HHV)'))
             ced_cf_dict = dict(ced_method.load())
         except Exception:
             ced_cf_dict = {}
 
         try:
-            renewable_ced_method = bw.Method(('Cumulative Energy Demand (CED)', 'energy resources: renewable', 'energy content (HHV)'))
+            renewable_ced_method = bd.Method(('Cumulative Energy Demand (CED)', 'energy resources: renewable', 'energy content (HHV)'))
             renewable_cf_keys = set(k for k, _v in renewable_ced_method.load())
         except Exception:
             renewable_cf_keys = set()
