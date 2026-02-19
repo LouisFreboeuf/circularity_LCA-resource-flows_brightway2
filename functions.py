@@ -607,9 +607,17 @@ class CircularityCalculator:
         detailed_flows_df = pd.DataFrame(detailed_flows)
 
         if save_csv and not detailed_flows_df.empty:
-            csv_filename = "circularity_inventory.csv"
+            # 1. Define the folder name
+            output_folder = "results_csv"
+            # 2. Create the folder if it doesn't exist
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder)
+            # 3. Combine folder and filename
+            csv_filename = os.path.join(output_folder, "circularity_inventory.csv")
             detailed_flows_df.to_csv(csv_filename, index=False)
-            print(f"Detailed inventory saved to: {csv_filename}")
+            # 4. Save
+            detailed_flows_df.to_csv(csv_filename, index=False)
+            print(f"Detailed inventory saved to: {os.path.abspath(csv_filename)}")
 
         V_df = pd.DataFrame.from_dict(V, orient='index', columns=['Natural Resources'])
         Ri_df = pd.DataFrame.from_dict(Ri, orient='index', columns=['Technosphere Inputs'])
@@ -1494,8 +1502,16 @@ class CircularityDatabaseAnalyzer:
 
                 if len(results) % save_interval == 0:
                     interim_df = pd.DataFrame(results)
-                    interim_df.to_csv(f'circularity_interim_{len(results)}.csv', index=False)
-                    print(f"Saved interim results: {len(results)} processes")
+                    # 1. Define and create the folder
+                    output_folder = "results_csv"
+                    if not os.path.exists(output_folder):
+                        os.makedirs(output_folder)
+                    # 2. Construct the path for the interim file
+                    interim_filename = os.path.join(output_folder, f'circularity_interim_{len(results)}.csv')
+
+                    # 3. Save
+                    interim_df.to_csv(interim_filename, index=False)
+                    print(f"Saved interim results to {interim_filename}: {len(results)} processes")
 
             except Exception as e:
                 print(f"Error processing activity {i+1}: {e}")
