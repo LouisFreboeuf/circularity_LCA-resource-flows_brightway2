@@ -265,7 +265,7 @@ class CircularityCalculator:
                 and unit in ('megajoule', 'kilowatt hour')
             )
             or is_excluded_emission
-            # or is_water_flow  
+            # or is_water_flow  # if commented, the water flows are not excluded
         )
 
     @staticmethod
