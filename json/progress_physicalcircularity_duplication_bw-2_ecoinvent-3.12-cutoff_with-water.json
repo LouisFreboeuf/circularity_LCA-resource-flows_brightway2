@@ -1,8 +1,8 @@
 {
   "analysis": {
     "status": "completed",
-    "timestamp": "2026-02-19T11:11:10.189523",
-    "execution_time": "64.62s",
+    "timestamp": "2026-02-21T11:15:58.382553",
+    "execution_time": "0.32s",
     "data_summary": {
       "ecoinvent-3.11-biosphere": 0,
       "ecoinvent-3.11-cutoff": 0
@@ -10,7 +10,7 @@
   },
   "biosphere_flows": {
     "status": "completed",
-    "timestamp": "2026-02-19T11:11:10.189523",
+    "timestamp": "2026-02-21T11:15:58.384569",
     "execution_time": "0.00s",
     "data_summary": "Flows and exchanges created"
   }
