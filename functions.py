@@ -53,35 +53,56 @@ class BurdenFreeAnalyzer:
 
         self.setup_complete = True
 
-    def save_results(self, filename="burden_free_results.json"):
-        # Save burden-free activities to a JSON file.
-        with open(filename, "w") as f:
+    def save_results(self, filename=None):
+        """Save burden-free activities to a JSON file."""
+
+        json_dir = "results_json"
+        os.makedirs(json_dir, exist_ok=True)
+
+        if filename is None:
+            filename = f"{self.project_name}_added_product_flows.json"
+
+        filepath = os.path.join(json_dir, filename)
+
+        with open(filepath, "w") as f:
             json.dump(
                 {db_name: [act.as_dict() for act in acts]
-                 for db_name, acts in self.all_burden_free_activities.items()},
+                for db_name, acts in self.all_burden_free_activities.items()},
                 f,
                 indent=2
             )
         
-    def load_results(self, filename="burden_free_results.json"):
+    def load_results(self, filename=None):
         """Load burden-free activities from a JSON file."""
-        if not os.path.exists(filename):
+
+        json_dir = "results_json"
+
+        if filename is None:
+            filename = f"{self.project_name}_added_product_flows.json"
+
+        filepath = os.path.join(json_dir, filename)
+
+        if not os.path.exists(filepath):
             return False
-        with open(filename, "r") as f:
+
+        with open(filepath, "r") as f:
             data = json.load(f)
+
         self.all_burden_free_activities = {}
+
         for db_name, acts in data.items():
             self.all_burden_free_activities[db_name] = []
+
             for act in acts:
                 try:
-                    # Use (database, code) as the key
                     key = (db_name, act["code"])
                     activity = bd.get_activity(key)
                     self.all_burden_free_activities[db_name].append(activity)
+
                 except Exception as e:
                     print(f"Error loading activity {act['code']} in {db_name}: {e}")
-        return True
 
+        return True
 
     @staticmethod
     def is_burden_free_activity(activity):
@@ -304,12 +325,14 @@ class CircularityCalculator:
         mass_lookup = {}
         energy_lookup = {}
         water_lookup = {}
+        dry_mass_lookup = {}
         db = Database(self.technosphere_db_name)
 
         for act in db:
             for exc in act.exchanges():
                 properties = exc.get('properties', {})
                 wet_mass = properties.get('wet mass', {}) # total mass
+                dry_mass = properties.get('dry mass', {}) # dry mass (without water molecules)
                 water_content = properties.get('water content', {}) # water content
                 heating_value = properties.get('heating value, net', {})
 
@@ -354,19 +377,23 @@ class CircularityCalculator:
                 ):
                     water_mass_amount = wet_mass.get('amount') * water_content.get('amount')
                     water_lookup[key] = (water_mass_amount, wet_mass.get('unit'))
+                # --- store dry mass ---   
+                if dry_mass and dry_mass.get('amount') is not None:
+                    dry_mass_lookup[key] = (dry_mass.get('amount'), dry_mass_mass.get('unit'))
                 # --- store energy content --- 
                 if heating_value and heating_value.get('amount') is not None:
                     energy_lookup[key] = (heating_value.get('amount'), heating_value.get('unit'))
                     
-        return mass_lookup, energy_lookup, water_lookup
+        return mass_lookup, energy_lookup, water_lookup, dry_mass_lookup
         
-    def get_property_factors(self, flow, mass_lookup, energy_lookup, water_lookup, ced_cf_dict, renewable_cf_keys):
+    def get_property_factors(self, flow, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys):
         """
         Get both kg and MJ factors for a flow in one function call.
         """
         kg_factor = None
         MJ_factor = None
         kg_water_factor = None
+        kg_dry_mass_factor = None # to compare
 
         unit = flow.get('unit', '')
         name = flow.get('name', '').lower()
@@ -415,21 +442,48 @@ class CircularityCalculator:
                 MJ_factor = energy_lookup[key][0]
             if not kg_water_factor and key in water_lookup:
                 kg_water_factor = water_lookup[key][0]
+            if not kg_dry_mass_factor and key in dry_mass_lookup:
+                kg_dry_mass_factor = dry_mass_lookup[key][0]
         
             if kg_factor is not None and MJ_factor is not None and kg_water_factor is not None:
                 break
                 
         #--- for later if only dry mass is of interest ---
-        dry_mass_factor = None
+        kg_dry_mass_factor_2 = None
 
         if kg_factor is not None:
             if kg_water_factor is not None:
-                dry_mass_factor = kg_factor - kg_water_factor
+                kg_dry_mass_factor_2 = kg_factor - kg_water_factor
             else:
-                dry_mass_factor = kg_factor
+                kg_dry_mass_factor_2 = kg_factor
 
-        return kg_factor, MJ_factor, kg_water_factor#, dry_mass_factor
+        return kg_factor, MJ_factor, kg_water_factor, kg_dry_mass_factor, kg_dry_mass_factor_2
+    
+    def select_mass_factor(self, mass_strategy,
+                        kg_factor,
+                        kg_water_factor,
+                        kg_dry_mass_factor,
+                        kg_dry_mass_factor_2):
+        """
+        Select mass factor according to chosen strategy.
+        """
 
+        if mass_strategy == "full_mass":
+            return kg_factor
+
+        elif mass_strategy == "water_mass":
+            return kg_water_factor
+
+        elif mass_strategy == "dry_mass":
+            # Prefer explicit dry mass property
+            if kg_dry_mass_factor is not None:
+                return kg_dry_mass_factor
+            else:
+                return kg_dry_mass_factor_2
+
+        else:
+            raise ValueError(f"Unknown mass strategy: {mass_strategy}")
+    
     @staticmethod
     def get_inventory_flows(setup_name):
         """
@@ -466,15 +520,48 @@ class CircularityCalculator:
                         print(f"Error getting flow {flow_key}: {e}")
 
         return pd.DataFrame(all_flows) if all_flows else pd.DataFrame()
+    
+    def compare_dry_mass_factors(self, detailed_flows_df, tolerance=1e-6):
+        """
+        Compare explicit dry mass vs computed dry mass (wet - water).
+        """
 
-    def compute_circularity_efficiency_variables(self, flows_df, save_csv=True, setup_name=None):
+        comparison_results = []
+
+        for _, row in detailed_flows_df.iterrows():
+
+            explicit = row.get("kg_dry_mass_factor")
+            computed = row.get("kg_dry_mass_factor_2")
+
+            if explicit is None or computed is None:
+                continue
+
+            difference = explicit - computed
+            relative_error = difference / explicit if explicit != 0 else None
+
+            comparison_results.append({
+                "Flow Name": row["Flow Name"],
+                "Explicit Dry Mass": explicit,
+                "Computed Dry Mass": computed,
+                "Absolute Difference": difference,
+                "Relative Error": relative_error
+            })
+
+        return pd.DataFrame(comparison_results)
+
+    def compute_circularity_efficiency_variables(
+        self,
+        flows_df,
+        mass_strategy="full_mass",
+        save_csv=True,
+        setup_name=None):
         """
         Optimized circularity computation with functional unit reference product included in Rr.
         """
         if flows_df.empty:
             return None, None, None, None
 
-        mass_lookup, energy_lookup, water_lookup = CircularityCalculator.build_combined_lookup(self)
+        mass_lookup, energy_lookup, water_lookup, dry_mass_lookup = CircularityCalculator.build_combined_lookup(self)
 
         try:
             ced_method = bd.Method(('Cumulative Energy Demand (CED)', 'energy resources: non-renewable', 'energy content (HHV)')) #bw. for brightway2
@@ -503,11 +590,7 @@ class CircularityCalculator:
         Rr_energy = 0.0
         Er_energy = 0.0
         W_energy = 0.0
-        V_mass_water = 0.0 # in some ISO 59020 recommended indicators, the water are distinguished from the mass flows
-        Ri_mass_water = 0.0
-        Rr_mass_water = 0.0
-        Er_mass_water = 0.0
-        W_mass_water = 0.0
+
         
         detailed_flows = []
         flow_cache = {}
@@ -535,13 +618,19 @@ class CircularityCalculator:
 
                             print(f"Adding functional unit to Rr: {fu_amount} {fu_unit} of {fu_name}")
 
-                            kg_factor, MJ_factor, kg_water_factor = self.get_property_factors(fu_activity, mass_lookup, energy_lookup, water_lookup, ced_cf_dict, renewable_cf_keys)
+                            kg_factor, MJ_factor, kg_water_factor, kg_dry_mass_factor, kg_dry_mass_factor_2 = self.get_property_factors(fu_activity, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys)
+                            
+                            selected_mass_factor = self.select_mass_factor(
+                                mass_strategy,
+                                kg_factor,
+                                kg_water_factor,
+                                kg_dry_mass_factor,
+                                kg_dry_mass_factor_2
+                            )
 
                             Rr[fu_unit] += fu_amount
-                            if kg_factor:
-                                Rr_mass += fu_amount * kg_factor
-                            if kg_water_factor:
-                                Rr_mass_eau += fu_amount * kg_water_factor
+                            if selected_mass_factor:
+                                Rr_mass += fu_amount * selected_mass_factor
                             if MJ_factor:
                                 Rr_energy += fu_amount * MJ_factor
 
@@ -580,9 +669,16 @@ class CircularityCalculator:
             if self.should_exclude_flow(unit, name, categories, flow_type):
                 continue
 
-            kg_factor, MJ_factor, kg_water_factor = self.get_property_factors(
-                flow, mass_lookup, energy_lookup, water_lookup, ced_cf_dict, renewable_cf_keys)
-
+            kg_factor, MJ_factor, kg_water_factor, kg_dry_mass_factor, kg_dry_mass_factor_2 = self.get_property_factors(
+                flow, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys)
+            
+            selected_mass_factor = self.select_mass_factor(
+                mass_strategy,
+                kg_factor,
+                kg_water_factor,
+                kg_dry_mass_factor,
+                kg_dry_mass_factor_2
+            )
             category = None
             mass_equiv = abs(amount) * kg_factor if kg_factor else None
             mass_water_equiv = abs(amount) * kg_water_factor if kg_water_factor else None
@@ -590,29 +686,23 @@ class CircularityCalculator:
 
             if 'resource' in flow_type or any(isinstance(cat, str) and 'resource' in cat.lower() for cat in categories if categories):
                 V[unit] += abs(amount)
-                if kg_factor:
-                    V_mass += abs(amount) * kg_factor
-                if kg_water_factor:
-                    V_mass_water += abs(amount) * kg_water_factor
+                if selected_mass_factor:
+                    V_mass += abs(amount) * selected_mass_factor
                 if MJ_factor:
                     V_energy += abs(amount) * MJ_factor
                 category = 'Natural Resources (V)'
             elif 'technosphere' in flow_type:
                 if amount > 0:
                     Ri[unit] += amount
-                    if kg_factor:
-                        Ri_mass += amount * kg_factor
-                    if kg_water_factor:
-                        Ri_mass_water += amount * kg_water_factor
+                    if selected_mass_factor:
+                        Ri_mass += amount * selected_mass_factor
                     if MJ_factor:
                         Ri_energy += amount * MJ_factor
                     category = 'Technosphere Inputs (Ri)'
                 else:
                     Rr[unit] += abs(amount)
-                    if kg_factor:
-                        Rr_mass += abs(amount) * kg_factor
-                    if kg_water_factor:
-                        Rr_wass_water += abs(amount) * kg_water_factor
+                    if selected_mass_factor:
+                        Rr_mass += abs(amount) * selected_mass_factor
                     if MJ_factor:
                         Rr_energy += abs(amount) * MJ_factor
                     category = 'Recycled Outputs (Rr)'
@@ -622,10 +712,8 @@ class CircularityCalculator:
                     and any(isinstance(cat, str) and cat.lower().startswith(tuple(self.VALUABLE_COMPARTMENTS)) for cat in categories)):
                     
                     Er[unit] += abs(amount)
-                    if kg_factor:
-                        Er_mass += abs(amount) * kg_factor
-                    if kg_water_factor:
-                        Er_mass_water += abs(amount) * kg_water_factor
+                    if selected_mass_factor:
+                        Er_mass += abs(amount) * selected_mass_factor
                     if MJ_factor:
                         Er_energy += abs(amount) * MJ_factor
                     category = 'Cleaned Emissions (Er)'
@@ -635,10 +723,8 @@ class CircularityCalculator:
                     continue
                 else:
                     W[unit] += abs(amount)
-                    if kg_factor:
-                        W_mass += abs(amount) * kg_factor
-                    if kg_water_factor:
-                        W_mass += abs(amount) * kg_water_factor
+                    if selected_mass_factor:
+                        W_mass += abs(amount) * selected_mass_factor
                     if MJ_factor:
                         W_energy += abs(amount) * MJ_factor
                     category = 'Waste Emissions (W)'
@@ -695,7 +781,7 @@ class CircularityCalculator:
             combined_df.loc['kilogram', 'inefficiency (η-)'] = (W_mass / (V_mass + Ri_mass)) if (V_mass + Ri_mass) else 0
             combined_df.loc['kilogram', 'efficiency (η+)'] = ((Er_mass + Rr_mass) / (V_mass + Ri_mass)) if (V_mass + Ri_mass) else 0
 
-        if V_energy or Ri_energy or Rr_energy or Er_mass or W_energy:
+        if V_energy or Ri_energy or Rr_energy or Er_energy or W_energy:
             combined_df.loc['megajoule', ['Natural Resources', 'Technosphere Inputs', 'Recycled Outputs', 'Cleaned Emissions', 'Waste Emissions']] = [
                 V_energy, Ri_energy, Rr_energy, Er_energy, W_energy
             ]
@@ -1518,8 +1604,8 @@ class CircularityDatabaseAnalyzer:
                 if self.circularity_calculator.should_exclude_flow(unit, name, categories, flow_type):
                     continue
 
-                kg_factor, MJ_factor, kg_water_factor = self.circularity_calculator.get_property_factors(
-                    flow, mass_lookup, energy_lookup, water_lookup, ced_cf_dict, renewable_cf_keys
+                kg_factor, MJ_factor, kg_water_factor, kg_dry_mass_factor, kg_dry_mass_factor_2 = self.circularity_calculator.get_property_factors(
+                    flow, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys
                 )
                 
                 # Classification logic (V, Ri, etc.)
@@ -1655,7 +1741,7 @@ class CircularityDatabaseAnalyzer:
         except Exception:
             renewable_cf_keys = set()
 
-        mass_lookup, energy_lookup, water_lookup = CircularityCalculator.build_combined_lookup(self)
+        mass_lookup, energy_lookup, water_lookup, dry_mass_lookup = CircularityCalculator.build_combined_lookup(self)
         isic_lookup_classified = self.precompute_isic_classes_classified()
         location_lookup_classified = self.precompute_locations_classified() # self.multi_lca_calculator.precompute_locations(self.technosphere_db_name) # function already in mlca class # need to classified it
 
@@ -1995,9 +2081,12 @@ class ProgressTracker:
 
     def __init__(self, project_name):
         self.project_name = project_name
-        self.json_dir = "json"
+        self.json_dir = "tracker_json"
         os.makedirs(self.json_dir, exist_ok=True)  # Create the json directory if it doesn't exist
-        self.progress_file = os.path.join(self.json_dir, f"progress_{project_name}.json")
+        self.progress_file = os.path.join(
+            self.json_dir,
+            f"{project_name}_progress.json"
+        )
         self.progress_data = self.load_progress()
 
     def load_progress(self):
