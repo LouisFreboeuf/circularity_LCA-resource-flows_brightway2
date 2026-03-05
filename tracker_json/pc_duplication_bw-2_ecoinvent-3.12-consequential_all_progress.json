@@ -1,0 +1,17 @@
+{
+  "analysis": {
+    "status": "completed",
+    "timestamp": "2026-03-05T22:31:51.599114",
+    "execution_time": "93.72s",
+    "data_summary": {
+      "ecoinvent-3.12-biosphere": 0,
+      "ecoinvent-3.12-consequential": 192
+    }
+  },
+  "biosphere_flows": {
+    "status": "completed",
+    "timestamp": "2026-03-05T22:33:17.751005",
+    "execution_time": "86.15s",
+    "data_summary": "Flows and exchanges created"
+  }
+}

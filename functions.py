@@ -647,7 +647,9 @@ class CircularityCalculator:
                                 'Water_Mass_Equivalent_kg': fu_amount * kg_water_factor if kg_water_factor else None,
                                 'kg_Factor': kg_factor,
                                 'MJ_Factor': MJ_factor,
-                                'kg_water_factor': kg_water_factor
+                                'kg_water_factor': kg_water_factor,
+                                'kg_dry_mass_factor': kg_dry_mass_factor,
+                                'kg_dry_mass_factor_2': kg_dry_mass_factor_2
                             })
 
                         except Exception as e:
