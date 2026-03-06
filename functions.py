@@ -744,7 +744,9 @@ class CircularityCalculator:
                 'Mass_Water_Equivalent_kg': mass_water_equiv,
                 'kg_Factor': kg_factor,
                 'MJ_Factor': MJ_factor,
-                'kg_water_factor': kg_water_factor
+                'kg_water_factor': kg_water_factor,
+                'kg_dry_mass_factor': kg_dry_mass_factor,
+                'kg_dry_mass_factor_2': kg_dry_mass_factor_2
             })
 
         detailed_flows_df = pd.DataFrame(detailed_flows)
