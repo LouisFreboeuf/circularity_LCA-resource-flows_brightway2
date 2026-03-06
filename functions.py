@@ -379,7 +379,7 @@ class CircularityCalculator:
                     water_lookup[key] = (water_mass_amount, wet_mass.get('unit'))
                 # --- store dry mass ---   
                 if dry_mass and dry_mass.get('amount') is not None:
-                    dry_mass_lookup[key] = (dry_mass.get('amount'), dry_mass_mass.get('unit'))
+                    dry_mass_lookup[key] = (dry_mass.get('amount'), dry_mass.get('unit'))
                 # --- store energy content --- 
                 if heating_value and heating_value.get('amount') is not None:
                     energy_lookup[key] = (heating_value.get('amount'), heating_value.get('unit'))
@@ -644,7 +644,7 @@ class CircularityCalculator:
                                 'Category': 'Recycled Outputs (Rr) - Functional Unit',
                                 'Mass_Equivalent_kg': fu_amount * kg_factor if kg_factor else None,
                                 'Energy_Equivalent_MJ': fu_amount * MJ_factor if MJ_factor else None,
-                                'Water_Mass_Equivalent_kg': fu_amount * kg_water_factor if kg_water_factor else None,
+                                'Mass_Water_Equivalent_kg': fu_amount * kg_water_factor if kg_water_factor else None,
                                 'kg_Factor': kg_factor,
                                 'MJ_Factor': MJ_factor,
                                 'kg_water_factor': kg_water_factor,
