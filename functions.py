@@ -1550,7 +1550,7 @@ class CircularityDatabaseAnalyzer:
             
         return pd.DataFrame(all_flows) if all_flows else pd.DataFrame()
 
-    def compute_circularity_for_single_fu(self, fu_dict, mass_lookup, energy_lookup, ced_cf_dict, renewable_cf_keys, isic_lookup_classified, location_lookup_classified):
+    def compute_circularity_for_single_fu(self, fu_dict, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys, isic_lookup_classified, location_lookup_classified):
         """
         Compute circularity for a single functional unit.
         """
@@ -1764,7 +1764,7 @@ class CircularityDatabaseAnalyzer:
                           f"Rate: {rate:.1f} processes/min - "
                           f"ETA: {remaining/60:.1f} minutes")
 
-                result = self.compute_circularity_for_single_fu(fu_dict, mass_lookup, energy_lookup, ced_cf_dict, renewable_cf_keys, isic_lookup_classified, location_lookup_classified)
+                result = self.compute_circularity_for_single_fu(fu_dict, mass_lookup, energy_lookup, water_lookup, dry_mass_lookup, ced_cf_dict, renewable_cf_keys, isic_lookup_classified, location_lookup_classified)
                 if result:
                     results.append(result)
 
